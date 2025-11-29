@@ -357,8 +357,8 @@ export default function Chat({ encryptionKey, roomId, userName, onLogout }: Chat
                                     await supabase.from('push_subscriptions').insert({
                                         room_id: roomId,
                                         user_name: userName,
-                                        endpoint: subscription.endpoint,
-                                        keys: subscription.toJSON().keys
+                                        endpoint: sub.endpoint,
+                                        keys: sub.toJSON().keys
                                     });
                                     alert('Saved to DB');
                                 } catch (e: any) {
