@@ -1,9 +1,9 @@
 -- Drop existing tables if needed (careful in production!)
-drop table if exists messages;
-drop table if exists participants;
-drop table if exists rooms;
-drop table if exists push_subscriptions;
-drop table if exists archives;
+drop table if exists messages cascade;
+drop table if exists participants cascade;
+drop table if exists rooms cascade;
+drop table if exists push_subscriptions cascade;
+drop table if exists archives cascade;
 
 -- Create rooms table
 create table rooms (

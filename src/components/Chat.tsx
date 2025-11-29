@@ -67,7 +67,10 @@ export default function Chat({ encryptionKey, roomId, userName, onLogout }: Chat
                 if (existingSub) return; // Already subscribed
 
                 const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-                if (!vapidKey) return;
+                if (!vapidKey) {
+                    console.warn('VAPID Public Key not found');
+                    return;
+                }
 
                 const subscription = await registration.pushManager.subscribe({
                     userVisibleOnly: true,
@@ -75,15 +78,27 @@ export default function Chat({ encryptionKey, roomId, userName, onLogout }: Chat
                 });
 
                 // 4. Save to Supabase
-                await supabase.from('push_subscriptions').insert({
+                const { error } = await supabase.from('push_subscriptions').insert({
                     room_id: roomId,
                     user_name: userName,
                     endpoint: subscription.endpoint,
                     keys: subscription.toJSON().keys
                 });
 
+                if (error) {
+                    if (error.code === '23505') {
+                        // Unique violation, ignore (already subscribed)
+                    } else {
+                        console.error('Failed to save subscription:', error);
+                    }
+                }
+
             } catch (error) {
                 console.error('Push registration failed:', error);
+                // Only alert if it's not a permission denial (which is common)
+                if (error instanceof Error && error.message !== 'Registration failed - permission denied') {
+                    // alert('Push notification error: ' + error.message);
+                }
             }
         };
 
@@ -324,6 +339,36 @@ export default function Chat({ encryptionKey, roomId, userName, onLogout }: Chat
                         </button>
                         <button onClick={onLogout} className="p-2 text-onSurface-variant-light dark:text-onSurface-variant-dark hover:bg-surface-variant-light dark:hover:bg-surface-variant-dark rounded-full transition-colors" title="Logout">
                             <LogOut className="w-5 h-5" />
+                        </button>
+                        <button
+                            onClick={async () => {
+                                try {
+                                    if (!('serviceWorker' in navigator)) { alert('No SW support'); return; }
+                                    const reg = await navigator.serviceWorker.register('/sw.js');
+                                    const perm = await Notification.requestPermission();
+                                    alert(`Permission: ${perm}`);
+
+                                    const sub = await reg.pushManager.subscribe({
+                                        userVisibleOnly: true,
+                                        applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!)
+                                    });
+                                    alert('Subscribed! Endpoint: ' + sub.endpoint.slice(-20));
+
+                                    await supabase.from('push_subscriptions').insert({
+                                        room_id: roomId,
+                                        user_name: userName,
+                                        endpoint: subscription.endpoint,
+                                        keys: subscription.toJSON().keys
+                                    });
+                                    alert('Saved to DB');
+                                } catch (e: any) {
+                                    alert('Error: ' + e.message);
+                                }
+                            }}
+                            className="p-2 text-blue-500 hover:bg-blue-50 rounded-full"
+                            title="Test Push"
+                        >
+                            🔔
                         </button>
                     </div>
                 </header>
