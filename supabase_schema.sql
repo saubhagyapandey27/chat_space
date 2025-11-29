@@ -45,6 +45,8 @@ create table archives (
 -- Create push_subscriptions table
 create table push_subscriptions (
   id uuid default gen_random_uuid() primary key,
+  room_id uuid references rooms(id) on delete cascade not null,
+  user_name text not null,
   endpoint text unique not null,
   keys jsonb not null,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null

@@ -50,10 +50,57 @@ export default function Chat({ encryptionKey, roomId, userName, onLogout }: Chat
     const [errorDialog, setErrorDialog] = useState<string | null>(null);
 
     useEffect(() => {
-        if ('Notification' in window && Notification.permission === 'default') {
-            Notification.requestPermission();
+        // Register Service Worker and Subscribe to Push
+        const registerPush = async () => {
+            if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+
+            try {
+                // 1. Register SW
+                const registration = await navigator.serviceWorker.register('/sw.js');
+
+                // 2. Request Permission
+                const permission = await Notification.requestPermission();
+                if (permission !== 'granted') return;
+
+                // 3. Subscribe
+                const existingSub = await registration.pushManager.getSubscription();
+                if (existingSub) return; // Already subscribed
+
+                const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+                if (!vapidKey) return;
+
+                const subscription = await registration.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: urlBase64ToUint8Array(vapidKey)
+                });
+
+                // 4. Save to Supabase
+                await supabase.from('push_subscriptions').insert({
+                    room_id: roomId,
+                    user_name: userName,
+                    endpoint: subscription.endpoint,
+                    keys: subscription.toJSON().keys
+                });
+
+            } catch (error) {
+                console.error('Push registration failed:', error);
+            }
+        };
+
+        registerPush();
+    }, [roomId, userName]);
+
+    // Helper for VAPID key conversion
+    function urlBase64ToUint8Array(base64String: string) {
+        const padding = '='.repeat((4 - base64String.length % 4) % 4);
+        const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+        const rawData = window.atob(base64);
+        const outputArray = new Uint8Array(rawData.length);
+        for (let i = 0; i < rawData.length; ++i) {
+            outputArray[i] = rawData.charCodeAt(i);
         }
-    }, []);
+        return outputArray;
+    }
 
     useEffect(() => {
         supabase.from('rooms').select('name').eq('id', roomId).single()
@@ -159,6 +206,14 @@ export default function Chat({ encryptionKey, roomId, userName, onLogout }: Chat
             const encryptedContent = await encryptMessage(inputText, encryptionKey);
             const { error } = await supabase.from('messages').insert({ room_id: roomId, sender_name: userName, content: encryptedContent });
             if (error) throw error;
+
+            // Trigger Push Notification
+            fetch('/api/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ roomId, senderName: userName })
+            }).catch(console.error);
+
             setInputText('');
         } catch (err: any) {
             console.error('Error sending message:', err);
@@ -278,7 +333,7 @@ export default function Chat({ encryptionKey, roomId, userName, onLogout }: Chat
                     {messages.map((msg) => (
                         <div key={msg.id} className={`flex flex-col ${msg.isOwn ? 'items-end' : 'items-start'}`}>
                             <div className={`max-w-[80%] p-4 rounded-2xl shadow-sm ${msg.decryptedContent === '⚠️ Decryption failed' ? 'bg-red-100 text-red-800' :
-                                    msg.isOwn ? 'bg-primary-light dark:bg-primary-dark text-white dark:text-gray-900 rounded-br-none' : 'bg-surface-light dark:bg-surface-dark text-onSurface-light dark:text-onSurface-dark rounded-bl-none'
+                                msg.isOwn ? 'bg-primary-light dark:bg-primary-dark text-white dark:text-gray-900 rounded-br-none' : 'bg-surface-light dark:bg-surface-dark text-onSurface-light dark:text-onSurface-dark rounded-bl-none'
                                 }`}>
                                 <p className="break-words">{msg.decryptedContent}</p>
                                 <span className={`text-[10px] block mt-1 text-right opacity-70`}>
